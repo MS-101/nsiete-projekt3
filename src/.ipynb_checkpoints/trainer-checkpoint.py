@@ -29,18 +29,19 @@ class Trainer:
         self.max_epoch = config['max_epoch']
         self.output_dir = config['output_dir']
 
-        self.train_losses_G = []
-        self.train_losses_D_A = []
-        self.train_losses_D_B = []
-        self.val_losses_G = []
-        self.val_losses_D_A = []
-        self.val_losses_D_B = []
-
-        self.cur_epoch = 0
-
     def fit(self, checkpoint=None):
         if (checkpoint):
             self.load_checkpoint(filename=checkpoint)
+        else:
+            self.train_losses_G = []
+            self.train_losses_D_A = []
+            self.train_losses_D_B = []
+
+            self.val_losses_G = []
+            self.val_losses_D_A = []
+            self.val_losses_D_B = []
+
+            self.cur_epoch = 0
         
         for epoch in range(self.cur_epoch, self.max_epoch):
             self.cur_epoch = epoch
@@ -57,21 +58,25 @@ class Trainer:
 
             self.save_checkpoint(filename=f"epoch_{epoch+1}.pt")
 
-        self.plot_loss(filename='generator_loss.png', caption='Generator loss', train_losses=train_losses_G, val_losses=val_losses_G)
-        self.plot_loss(filename='discriminator_A_loss.png', caption='Discriminator A loss', train_losses=train_losses_D_A, val_losses=val_losses_D_A)
-        self.plot_loss(filename='discriminator_B_loss.png', caption='Discriminator B loss', train_losses=train_losses_D_B, val_losses=val_losses_D_B)
+        self.plot_loss(filename='generator_loss.png', caption='Generator loss', train_losses=self.train_losses_G, val_losses=self.val_losses_G)
+        self.plot_loss(filename='discriminator_A_loss.png', caption='Discriminator A loss', train_losses=self.train_losses_D_A, val_losses=self.val_losses_D_A)
+        self.plot_loss(filename='discriminator_B_loss.png', caption='Discriminator B loss', train_losses=self.train_losses_D_B, val_losses=self.val_losses_D_B)
           
     def train_epoch(self, epoch):
         dataloader = self.datamodule.train_loader
 
-        self.model.train()
+        self.generator_A2B.train()
+        self.generator_B2A.train()
+        self.discriminator_A.train()
+        self.discriminator_B.train()
+
         total_loss_G = 0.0
         total_loss_D_A = 0.0
         total_loss_D_B = 0.0
 
         target_dims = (3, 64, 64)
-        target_real = torch.full(target_dims, 1)
-        target_fake = torch.full(target_dims, 0)
+        target_real = torch.full(target_dims, 1.0).to(self.device)
+        target_fake = torch.full(target_dims, 0.0).to(self.device)
 
         for real_A, real_B in dataloader:
             real_A = real_A.to(self.device)
@@ -102,10 +107,10 @@ class Trainer:
             # cycle loss
 
             recovered_A = self.generator_B2A(fake_B)
-            loss_cycle_B2A = self.cricerion_cycle(recovered_A, real_A) * 10.0
+            loss_cycle_B2A = self.criterion_cycle(recovered_A, real_A) * 10.0
 
             recovered_B = self.generator_A2B(fake_A)
-            loss_cycle_A2B = self.cricerion_cycle(recovered_B, real_B) * 10.0
+            loss_cycle_A2B = self.criterion_cycle(recovered_B, real_B) * 10.0
 
             loss_G = loss_identity_A + loss_identity_B + loss_GAN_A2B + loss_GAN_B2A + loss_cycle_A2B + loss_cycle_B2A
             total_loss_G += loss_G.item()
@@ -124,10 +129,11 @@ class Trainer:
 
             # fake loss
 
-            pred_fake = self.discriminator_B(fake_A)
+            pred_fake = self.discriminator_B(fake_A.detach())
             loss_D_A_fake = self.criterion_GAN(pred_fake, target_fake)
             
             loss_D_A = (loss_D_A_real + loss_D_A_fake) * 0.5
+            loss_D_A = loss_D_A_real * 0.5
             total_loss_D_A += loss_D_A.item()
         
             loss_D_A.backward()
@@ -144,7 +150,7 @@ class Trainer:
 
             # fake loss
 
-            pred_fake = self.discriminator_B(fake_B)
+            pred_fake = self.discriminator_B(fake_B.detach())
             loss_D_B_fake = self.criterion_GAN(pred_fake, target_fake)
 
             loss_D_B = (loss_D_B_real + loss_D_B_fake) * 0.5
@@ -164,92 +170,92 @@ class Trainer:
     def val_epoch(self, epoch):
         dataloader = self.datamodule.val_loader
 
-        self.model.eval()
+        self.generator_A2B.eval()
+        self.generator_B2A.eval()
+        self.discriminator_A.eval()
+        self.discriminator_B.eval()
+
         total_loss_G = 0.0
         total_loss_D_A = 0.0
         total_loss_D_B = 0.0
 
-        target_dims = (3, 64, 64)
-        target_real = torch.full(target_dims, 1)
-        target_fake = torch.full(target_dims, 0)
-        
-        for real_A, real_B in dataloader:
-            real_A = real_A.to(self.device)
-            real_B = real_B.to(self.device)
+        target_dims = (8, 3, 64, 64)
+        target_real = torch.full(target_dims, 1.0).to(self.device)
+        target_fake = torch.full(target_dims, 0.0).to(self.device)
 
-            # TRAIN GENERATORS A2B, B2A
+        with torch.no_grad():
+            for real_A, real_B in dataloader:
+                real_A = real_A.to(self.device)
+                real_B = real_B.to(self.device)
+    
+                # TRAIN GENERATORS A2B, B2A
+    
+                # identity loss
+                
+                identity_A = self.generator_B2A(real_A)
+                loss_identity_A = self.criterion_identity(identity_A, real_A) * 5.0
+                
+                identity_B = self.generator_A2B(real_B)
+                loss_identity_B = self.criterion_identity(identity_B, real_B) * 5.0
+    
+                # GAN loss
+                
+                fake_A = self.generator_B2A(real_B)
+                pred_fake = self.discriminator_A(fake_A)
+                loss_GAN_B2A = self.criterion_GAN(pred_fake, target_real)
+    
+                fake_B = self.generator_A2B(real_A)
+                pred_fake = self.discriminator_B(fake_B)
+                loss_GAN_A2B = self.criterion_GAN(pred_fake, target_real)
+    
+                # cycle loss
+    
+                recovered_A = self.generator_B2A(fake_B)
+                loss_cycle_B2A = self.criterion_cycle(recovered_A, real_A) * 10.0
+    
+                recovered_B = self.generator_A2B(fake_A)
+                loss_cycle_A2B = self.criterion_cycle(recovered_B, real_B) * 10.0
+    
+                loss_G = loss_identity_A + loss_identity_B + loss_GAN_A2B + loss_GAN_B2A + loss_cycle_A2B + loss_cycle_B2A
+                total_loss_G += loss_G.item()
+    
+                # TRAIN DISCRIMINATOR A
+    
+                # real loss
+    
+                pred_real = self.discriminator_A(real_A)
+                loss_D_A_real = self.criterion_GAN(pred_real, target_real)
+    
+                # fake loss
+    
+                pred_fake = self.discriminator_B(fake_A.detach())
+                loss_D_A_fake = self.criterion_GAN(pred_fake, target_fake)
+                
+                loss_D_A = (loss_D_A_real + loss_D_A_fake) * 0.5
+                loss_D_A = loss_D_A_real * 0.5
+                total_loss_D_A += loss_D_A.item()
             
-            self.optimizer_G.zero_grad()
-
-            # identity loss
-            
-            identity_A = self.generator_B2A(real_A)
-            loss_identity_A = self.criterion_identity(identity_A, real_A)*5.0
-            
-            identity_B = self.generator_A2B(real_B)
-            loss_identity_B = self.criterion_identity(identity_B, real_B)*5.0
-
-            # GAN loss
-            
-            fake_A = self.generator_B2A(real_B)
-            pred_fake = self.discriminator_A(fake_A)
-            loss_GAN_B2A = self.criterion_GAN(pred_fake, target_real)
-
-            fake_B = self.generator_A2B(real_A)
-            pred_fake = self.discriminator_B(fake_B)
-            loss_GAN_A2B = self.criterion_GAN(pred_fake, target_fake)
-
-            # cycle loss
-
-            recovered_A = self.generator_B2A(fake_B)
-            loss_cycle_ABA = self.cricerion_cycle(recovered_A, real_A) * 10.0
-
-            recovered_B = self.generator_A2B(fake_A)
-            loss_cycle_BAB = self.cricerion_cycle(recovered_B, real_B) * 10.0
-
-            loss_G = loss_identity_A + loss_identity_B + loss_GAN_A2B + loss_GAN_B2A + loss_cycle_ABA + loss_cycle_BAB
-            total_loss_G += loss_G.item()
-
-            # TRAIN DISCRIMINATOR A
-
-            self.optimizer_D_A.zero_grad()
-
-            # real loss
-
-            pred_real = self.discriminator_A(real_A)
-            loss_D_A_real = self.criterion_GAN(pred_real, target_real)
-
-            # fake loss
-
-            pred_fake = self.discriminator_A(fake_A)
-            loss_D_A_fake = self.criterion_GAN(pred_fake, target_fake)
-            
-            loss_D_A = (loss_D_A_real + loss_D_A_fake) * 0.5
-            total_loss_D_A += loss_D_A.item()
-        
-            # TRAIN DISCRIMINATOR B
-
-            self.optimizer_D_B.zero_grad()
-
-            # real loss
-
-            pred_real = self.discriminator_B(real_B)
-            loss_D_B_real = self.criterion_GAN(pred_real, target_real)
-
-            # fake loss
-
-            pred_fake = self.discriminator_B(fake_B)
-            loss_D_B_fake = self.criterion_GAN(pred_fake, target_fake)
-
-            loss_D_B = (loss_D_B_real + loss_D_B_fake) * 0.5
-            total_loss_D_B += loss_D_B.item()
-
+                # TRAIN DISCRIMINATOR B
+    
+                # real loss
+    
+                pred_real = self.discriminator_B(real_B)
+                loss_D_B_real = self.criterion_GAN(pred_real, target_real)
+    
+                # fake loss
+    
+                pred_fake = self.discriminator_B(fake_B.detach())
+                loss_D_B_fake = self.criterion_GAN(pred_fake, target_fake)
+    
+                loss_D_B = (loss_D_B_real + loss_D_B_fake) * 0.5
+                total_loss_D_B += loss_D_B.item()
+    
         avg_loss_G = total_loss_G / len(dataloader)
         avg_loss_D_A = total_loss_D_A / len(dataloader)
         avg_loss_D_B = total_loss_D_B / len(dataloader)
         
         print(f'Epoch {epoch+1}: Validation loss: generator = {avg_loss_G}; discriminator A = {avg_loss_D_A}; discriminator B = {avg_loss_D_B}')
-
+    
         return avg_loss_G, avg_loss_D_A, avg_loss_D_B
 
     def load_checkpoint(self, filename):

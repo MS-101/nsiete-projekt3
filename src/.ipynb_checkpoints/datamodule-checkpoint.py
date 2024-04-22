@@ -8,7 +8,7 @@ class DataModule():
         self.val_dataset = Selfie2AnimeDataset(root_dir='../data/val')
         self.test_dataset = Selfie2AnimeDataset(root_dir='../data/test')
     
-        self.batch_size = 64
+        self.batch_size = 8
         self.train_loader = DataLoader(
             self.train_dataset,
             batch_size=self.batch_size,
