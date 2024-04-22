@@ -1,3 +1,5 @@
+import os
+import matplotlib.pyplot as plt
 import torch
 
 
@@ -6,44 +8,54 @@ def decide_device():
     return "cpu"
 
 class Trainer:
-    def __init__(self, datamodule, generator_A2B, generator_B2A, discriminator_A, discriminator_B,
-            criterion_GAN, criterion_cycle, criterion_identity, optimizer_G, optimizer_D_A, optimizer_D_B,
-            epochs, output_dir):
+    def __init__(self, config):
         self.device = torch.device(decide_device())
 
-        self.datamodule = datamodule
-        self.generator_A2B = generator_A2B.to(self.device)
-        self.generator_B2A = generator_B2A.to(self.device)
-        self.discriminator_A = discriminator_A.to(self.device)
-        self.discriminator_B = discriminator_B.to(self.device)
-        self.criterion_GAN = criterion_GAN
-        self.criterion_cycle = criterion_cycle
-        self.criterion_identity = criterion_identity
-        self.optimizer_G = optimizer_G
-        self.optimizer_D_A = optimizer_D_A
-        self.optimizer_D_B = optimizer_D_B
-        self.epochs = epochs
-        self.output_dir = output_dir
-
-    def fit(self):
-        train_losses_G = []
-        train_losses_D_A = []
-        train_losses_D_B = []
+        self.datamodule = config['datamodule']
         
-        val_losses_G = []
-        val_losses_D_A = []
-        val_losses_D_B = []
+        self.generator_A2B = config['generator_A2B'].to(self.device)
+        self.generator_B2A = config['generator_B2A'].to(self.device)
+        self.discriminator_A = config['discriminator_A'].to(self.device)
+        self.discriminator_B = config['discriminator_B'].to(self.device)
+        
+        self.criterion_GAN = config['criterion_GAN']
+        self.criterion_cycle = config['criterion_cycle']
+        self.criterion_identity = config['criterion_identity']
+        
+        self.optimizer_G = config['optimizer_G']
+        self.optimizer_D_A = config['optimizer_D_A']
+        self.optimizer_D_B = config['optimizer_D_B']
+        
+        self.max_epoch = config['max_epoch']
+        self.output_dir = config['output_dir']
 
-        for epoch in range(self.epochs):
+        self.train_losses_G = []
+        self.train_losses_D_A = []
+        self.train_losses_D_B = []
+        self.val_losses_G = []
+        self.val_losses_D_A = []
+        self.val_losses_D_B = []
+
+        self.cur_epoch = 0
+
+    def fit(self, checkpoint=None):
+        if (checkpoint):
+            self.load_checkpoint(filename=checkpoint)
+        
+        for epoch in range(self.cur_epoch, self.max_epoch):
+            self.cur_epoch = epoch
+            
             train_loss_G, train_loss_D_A, train_loss_D_B = self.train_epoch(epoch)
-            train_losses_G.append(train_loss_G)
-            train_losses_D_A.append(train_loss_D_A)
-            train_losses_D_B.append(train_loss_D_B)
+            self.train_losses_G.append(train_loss_G)
+            self.train_losses_D_A.append(train_loss_D_A)
+            self.train_losses_D_B.append(train_loss_D_B)
 
             val_loss_G, val_loss_D_A, val_loss_D_B = self.val_epoch(epoch)
-            val_losses_G.append(val_loss_G)
-            val_losses_D_A.append(val_loss_D_A)
-            val_losses_D_B.append(val_loss_D_B)
+            self.val_losses_G.append(val_loss_G)
+            self.val_losses_D_A.append(val_loss_D_A)
+            self.val_losses_D_B.append(val_loss_D_B)
+
+            self.save_checkpoint(filename=f"epoch_{epoch+1}.pt")
 
         self.plot_loss(filename='generator_loss.png', caption='Generator loss', train_losses=train_losses_G, val_losses=val_losses_G)
         self.plot_loss(filename='discriminator_A_loss.png', caption='Discriminator A loss', train_losses=train_losses_D_A, val_losses=val_losses_D_A)
@@ -185,7 +197,7 @@ class Trainer:
 
             fake_B = self.generator_A2B(real_A)
             pred_fake = self.discriminator_B(fake_B)
-            loss_GAN_B2A = self.criterion_GAN(pred_fake, target_fake)
+            loss_GAN_A2B = self.criterion_GAN(pred_fake, target_fake)
 
             # cycle loss
 
@@ -239,6 +251,50 @@ class Trainer:
         print(f'Epoch {epoch+1}: Validation loss: generator = {avg_loss_G}; discriminator A = {avg_loss_D_A}; discriminator B = {avg_loss_D_B}')
 
         return avg_loss_G, avg_loss_D_A, avg_loss_D_B
+
+    def load_checkpoint(self, filename):
+        filename = os.path.join(self.output_dir, filename)
+        
+        checkpoint = torch.load(filename)
+        
+        self.generator_A2B.load_state_dict(checkpoint['generator_A2B'])
+        self.generator_B2A.load_state_dict(checkpoint['generator_B2A'])
+        self.discriminator_A.load_state_dict(checkpoint['discriminator_A'])
+        self.discriminator_B.load_state_dict(checkpoint['discriminator_B'])
+        
+        self.optimizer_G.load_state_dict(checkpoint['optimizer_G'])
+        self.optimizer_D_A.load_state_dict(checkpoint['optimizer_D_A'])
+        self.optimizer_D_B.load_state_dict(checkpoint['optimizer_D_B'])
+
+        self.train_losses_G = checkpoint['train_losses_G']
+        self.train_losses_D_A = checkpoint['train_losses_D_A']
+        self.train_losses_D_B = checkpoint['train_losses_D_B']
+
+        self.val_losses_G = checkpoint['val_losses_G']
+        self.val_losses_D_A = checkpoint['val_losses_D_A']
+        self.val_losses_D_B = checkpoint['val_losses_D_B']
+
+        self.cur_epoch = checkpoint['cur_epoch']
+    
+    def save_checkpoint(self, filename):
+        filename = os.path.join(self.output_dir, filename)
+        
+        torch.save({
+            'generator_A2B': self.generator_A2B.state_dict(),
+            'generator_B2A': self.generator_B2A.state_dict(),
+            'discriminator_A': self.discriminator_A.state_dict(),
+            'discriminator_B': self.discriminator_B.state_dict(),
+            'optimizer_G': self.optimizer_G.state_dict(),
+            'optimizer_D_A': self.optimizer_D_A.state_dict(),
+            'optimizer_D_B': self.optimizer_D_B.state_dict(),
+            'train_losses_G': self.train_losses_G,
+            'train_losses_D_A': self.train_losses_D_A,
+            'train_losses_D_B': self.train_losses_D_B,
+            'val_losses_G': self.val_losses_G,
+            'val_losses_D_A': self.val_losses_D_A,
+            'val_losses_D_B': self.val_losses_D_B,
+            'cur_epoch': self.cur_epoch
+        }, filename)
 
     def plot_loss(self, filename, caption, train_losses, val_losses):
         filename = os.path.join(self.output_dir, filename)
