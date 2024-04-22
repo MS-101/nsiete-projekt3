@@ -1,0 +1,19 @@
+version: '2.0'
+services:
+  main:
+    image: tverous/pytorch-notebook
+    environment:
+      - JUPYTER_TOKEN=passwd # TODO: Change the token
+    volumes:
+      - ./notebooks:/app/notebooks
+      - ./src:/app/src
+      - ./data:/app/data
+    ports:
+      - 8888:8888
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
