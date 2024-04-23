@@ -28,10 +28,11 @@ class Selfie2AnimeDataset(Dataset):
         
         transform = transforms.Compose([
             transforms.Resize((64, 64)),
-            transforms.PILToTensor()
+            transforms.ToTensor(),
+            transforms.ConvertImageDtype(torch.float32)
         ]) 
 
-        domainA_tensor = transform(domainA_img).to(torch.float32)
-        domainB_tensor = transform(domainB_img).to(torch.float32)
+        domainA_tensor = transform(domainA_img)
+        domainB_tensor = transform(domainB_img)
 
         return domainA_tensor, domainB_tensor
