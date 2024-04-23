@@ -77,9 +77,9 @@ class Trainer:
         for real_A, real_B in dataloader:
             real_A = real_A.to(self.device)
             real_B = real_B.to(self.device)
-    
-            # Determine target dimensions and set them to the appropriate size
-            target_shape = real_A.size(0)  # Using batch size as the reference
+        
+            # Determine target dimensions based on the discriminator's output shape
+            target_shape = (real_A.size(0), 1)  # Adjusting target shape based on discriminator output shape
             target_real = torch.ones(target_shape, device=self.device)
             target_fake = torch.zeros(target_shape, device=self.device)
     
@@ -183,9 +183,9 @@ class Trainer:
         for real_A, real_B in dataloader:
             real_A = real_A.to(self.device)
             real_B = real_B.to(self.device)
-    
-            # Determine target dimensions and set them to the appropriate size
-            target_shape = real_A.size(0)  # Using batch size as the reference
+        
+            # Determine target dimensions based on the discriminator's output shape
+            target_shape = (real_A.size(0), 1)  # Adjusting target shape based on discriminator output shape
             target_real = torch.ones(target_shape, device=self.device)
             target_fake = torch.zeros(target_shape, device=self.device)
     

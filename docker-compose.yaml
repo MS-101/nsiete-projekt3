@@ -8,6 +8,7 @@ services:
       - ./notebooks:/app/notebooks
       - ./src:/app/src
       - ./data:/app/data
+      - ./output:/app/output
     ports:
       - 8888:8888
     deploy:
