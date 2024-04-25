@@ -1,6 +1,8 @@
 import os
 import matplotlib.pyplot as plt
 import torch
+import torchvision.transforms.functional as F
+from PIL import Image
 
 
 def decide_device():
@@ -58,195 +60,181 @@ class Trainer:
 
             self.save_checkpoint(filename=f"epoch_{epoch+1}.pt")
 
-        self.plot_loss(filename='generator_loss.png', caption='Generator loss', train_losses=self.train_losses_G, val_losses=self.val_losses_G)
-        self.plot_loss(filename='discriminator_A_loss.png', caption='Discriminator A loss', train_losses=self.train_losses_D_A, val_losses=self.val_losses_D_A)
-        self.plot_loss(filename='discriminator_B_loss.png', caption='Discriminator B loss', train_losses=self.train_losses_D_B, val_losses=self.val_losses_D_B)
+        self.save_plot(filename='generator_loss.png', caption='Generator loss', metric_name='Loss', train_values=self.train_losses_G, val_values=self.val_losses_G)
+        self.save_plot(filename='discriminator_A_loss.png', caption='Discriminator A loss', metric_name='Loss', train_values=self.train_losses_D_A, val_values=self.val_losses_D_A)
+        self.save_plot(filename='discriminator_B_loss.png', caption='Discriminator B loss', metric_name='Loss', train_values=self.train_losses_D_B, val_values=self.val_losses_D_B)
+
+        self.test_epoch()
           
     def train_epoch(self, epoch):
-        dataloader = self.datamodule.train_loader
-    
-        self.generator_A2B.train()
-        self.generator_B2A.train()
-        self.discriminator_A.train()
-        self.discriminator_B.train()
-    
-        total_loss_G = 0.0
-        total_loss_D_A = 0.0
-        total_loss_D_B = 0.0
-    
-        for real_A, real_B in dataloader:
-            real_A = real_A.to(self.device)
-            real_B = real_B.to(self.device)
-        
-            # Determine target dimensions based on the discriminator's output shape
-            target_shape = (real_A.size(0), 1)  # Adjusting target shape based on discriminator output shape
-            target_real = torch.ones(target_shape, device=self.device)
-            target_fake = torch.zeros(target_shape, device=self.device)
-    
-            # TRAIN GENERATORS A2B, B2A
-    
-            self.optimizer_G.zero_grad()
-    
-            # identity loss
-            
-            identity_A = self.generator_B2A(real_A)
-            loss_identity_A = self.criterion_identity(identity_A, real_A) * 5.0
-            
-            identity_B = self.generator_A2B(real_B)
-            loss_identity_B = self.criterion_identity(identity_B, real_B) * 5.0
-    
-            # GAN loss
-            
-            fake_A = self.generator_B2A(real_B)
-            pred_fake = self.discriminator_A(fake_A)
-            loss_GAN_B2A = self.criterion_GAN(pred_fake, target_real)
-    
-            fake_B = self.generator_A2B(real_A)
-            pred_fake = self.discriminator_B(fake_B)
-            loss_GAN_A2B = self.criterion_GAN(pred_fake, target_real)
-    
-            # cycle loss
-    
-            recovered_A = self.generator_B2A(fake_B)
-            loss_cycle_B2A = self.criterion_cycle(recovered_A, real_A) * 10.0
-    
-            recovered_B = self.generator_A2B(fake_A)
-            loss_cycle_A2B = self.criterion_cycle(recovered_B, real_B) * 10.0
-    
-            loss_G = loss_identity_A + loss_identity_B + loss_GAN_A2B + loss_GAN_B2A + loss_cycle_A2B + loss_cycle_B2A
-            total_loss_G += loss_G.item()
-            
-            loss_G.backward()
-            self.optimizer_G.step()
-    
-            # TRAIN DISCRIMINATOR A
-    
-            self.optimizer_D_A.zero_grad()
-    
-            # real loss
-    
-            pred_real = self.discriminator_A(real_A)
-            loss_D_A_real = self.criterion_GAN(pred_real, target_real)
-    
-            # fake loss
-    
-            pred_fake = self.discriminator_A(fake_A.detach())
-            loss_D_A_fake = self.criterion_GAN(pred_fake, target_fake)
-            
-            loss_D_A = (loss_D_A_real + loss_D_A_fake) * 0.5
-            total_loss_D_A += loss_D_A.item()
-        
-            loss_D_A.backward()
-            self.optimizer_D_A.step()
-    
-            # TRAIN DISCRIMINATOR B
-    
-            self.optimizer_D_B.zero_grad()
-    
-            # real loss
-    
-            pred_real = self.discriminator_B(real_B)
-            loss_D_B_real = self.criterion_GAN(pred_real, target_real)
-    
-            # fake loss
-    
-            pred_fake = self.discriminator_B(fake_B.detach())
-            loss_D_B_fake = self.criterion_GAN(pred_fake, target_fake)
-    
-            loss_D_B = (loss_D_B_real + loss_D_B_fake) * 0.5
-            total_loss_D_B += loss_D_B.item()
-        
-            loss_D_B.backward()
-            self.optimizer_D_B.step()
-    
-        avg_loss_G = total_loss_G / len(dataloader)
-        avg_loss_D_A = total_loss_D_A / len(dataloader)
-        avg_loss_D_B = total_loss_D_B / len(dataloader)
-        
-        print(f'Epoch {epoch + 1}: Training loss: generator = {avg_loss_G}; discriminator A = {avg_loss_D_A}; discriminator B = {avg_loss_D_B}')
+        avg_loss_G, avg_loss_D_A, avg_loss_D_B = self.epoch(dataloader=self.datamodule.train_loader, save_images=False)
+
+        print(f'Epoch {epoch + 1} training: generator = {avg_loss_G}; discriminator A = {avg_loss_D_A}; discriminator B = {avg_loss_D_B}')
     
         return avg_loss_G, avg_loss_D_A, avg_loss_D_B
 
 
     def val_epoch(self, epoch):
-        dataloader = self.datamodule.val_loader
+        with torch.no_grad():
+            avg_loss_G, avg_loss_D_A, avg_loss_D_B = self.epoch(dataloader=self.datamodule.val_loader, save_images=False)
+
+        print(f'Epoch {epoch + 1} validation: generator = {avg_loss_G}; discriminator A = {avg_loss_D_A}; discriminator B = {avg_loss_D_B}')
     
-        self.generator_A2B.eval()
-        self.generator_B2A.eval()
-        self.discriminator_A.eval()
-        self.discriminator_B.eval()
+        return avg_loss_G, avg_loss_D_A, avg_loss_D_B
+
+    def test_epoch(self):
+        with torch.no_grad():
+            avg_loss_G, avg_loss_D_A, avg_loss_D_B = self.epoch(dataloader=self.datamodule.test_loader, save_images=True)
+
+        print(f'Testing: generator = {avg_loss_G}; discriminator A = {avg_loss_D_A}; discriminator B = {avg_loss_D_B}')
     
+    def epoch(self, dataloader, save_images):
+        batch_size = dataloader.batch_size
+
+        if (torch.is_grad_enabled()):
+            self.generator_A2B.train()
+            self.generator_B2A.train()
+            self.discriminator_A.train()
+            self.discriminator_B.train()
+        else:
+            self.generator_A2B.eval()
+            self.generator_B2A.eval()
+            self.discriminator_A.eval()
+            self.discriminator_B.eval()
+
         total_loss_G = 0.0
         total_loss_D_A = 0.0
         total_loss_D_B = 0.0
-    
-        for real_A, real_B in dataloader:
+
+        for cur_batch, (real_A, real_B) in enumerate(dataloader):
             real_A = real_A.to(self.device)
             real_B = real_B.to(self.device)
         
-            # Determine target dimensions based on the discriminator's output shape
-            target_shape = (real_A.size(0), 1)  # Adjusting target shape based on discriminator output shape
+            target_shape = (real_A.size(0), 1)
             target_real = torch.ones(target_shape, device=self.device)
             target_fake = torch.zeros(target_shape, device=self.device)
     
-            # Evaluate generators A2B and B2A
+            # GENERATORS
+    
+            if (torch.is_grad_enabled()):
+                self.optimizer_G.zero_grad()
+    
+            # identity loss
             
-            # Identity loss
             identity_A = self.generator_B2A(real_A)
             loss_identity_A = self.criterion_identity(identity_A, real_A) * 5.0
+
+            if (save_images):
+                for i in range(batch_size):
+                    self.save_image(filename=f'identity_A_{cur_batch*batch_size+i}.png', origin=real_A[i], result=identity_A[i])
             
             identity_B = self.generator_A2B(real_B)
             loss_identity_B = self.criterion_identity(identity_B, real_B) * 5.0
+
+            if (save_images):
+                for i in range(batch_size):
+                    self.save_image(filename=f'identity_B_{cur_batch*batch_size+i}.png', origin=real_B[i], result=identity_B[i])
     
             # GAN loss
+            
             fake_A = self.generator_B2A(real_B)
             pred_fake = self.discriminator_A(fake_A)
             loss_GAN_B2A = self.criterion_GAN(pred_fake, target_real)
+
+            if (save_images):
+                for i in range(batch_size):
+                    self.save_image(filename=f'fake_A_{cur_batch*batch_size+i}.png', origin=real_B[i], result=fake_A[i])
     
             fake_B = self.generator_A2B(real_A)
             pred_fake = self.discriminator_B(fake_B)
             loss_GAN_A2B = self.criterion_GAN(pred_fake, target_real)
+
+            if (save_images):
+                for i in range(batch_size):
+                    self.save_image(filename=f'fake_B_{cur_batch*batch_size+i}.png', origin=real_A[i], result=fake_B[i])
     
-            # Cycle loss
+            # cycle loss
+    
             recovered_A = self.generator_B2A(fake_B)
             loss_cycle_B2A = self.criterion_cycle(recovered_A, real_A) * 10.0
+
+            if (save_images):
+                for i in range(batch_size):
+                    self.save_image(filename=f'recovered_A_{cur_batch*batch_size+i}.png', origin=fake_B[i], result=recovered_A[i])
     
             recovered_B = self.generator_A2B(fake_A)
             loss_cycle_A2B = self.criterion_cycle(recovered_B, real_B) * 10.0
+
+            if (save_images):
+                for i in range(batch_size):
+                    self.save_image(filename=f'recovered_B_{cur_batch*batch_size+i}.png', origin=fake_A[i], result=recovered_B[i])
+
+            # total loss
     
             loss_G = loss_identity_A + loss_identity_B + loss_GAN_A2B + loss_GAN_B2A + loss_cycle_A2B + loss_cycle_B2A
             total_loss_G += loss_G.item()
+            
+            if (torch.is_grad_enabled()):
+                loss_G.backward()
+                self.optimizer_G.step()
     
-            # Evaluate discriminator A
+            # DISCRIMINATOR A
+    
+            if (torch.is_grad_enabled()):
+                self.optimizer_D_A.zero_grad()
+    
+            # real loss
+    
             pred_real = self.discriminator_A(real_A)
             loss_D_A_real = self.criterion_GAN(pred_real, target_real)
     
+            # fake loss
+    
             pred_fake = self.discriminator_A(fake_A.detach())
             loss_D_A_fake = self.criterion_GAN(pred_fake, target_fake)
-    
+            
+            # total loss
+
             loss_D_A = (loss_D_A_real + loss_D_A_fake) * 0.5
             total_loss_D_A += loss_D_A.item()
+
+            if (torch.is_grad_enabled()):
+                loss_D_A.backward()
+                self.optimizer_D_A.step()
     
-            # Evaluate discriminator B
+            # DISCRIMINATOR B
+    
+            if (torch.is_grad_enabled()):
+                self.optimizer_D_B.zero_grad()
+    
+            # real loss
+    
             pred_real = self.discriminator_B(real_B)
             loss_D_B_real = self.criterion_GAN(pred_real, target_real)
+    
+            # fake loss
     
             pred_fake = self.discriminator_B(fake_B.detach())
             loss_D_B_fake = self.criterion_GAN(pred_fake, target_fake)
     
+            # total loss
+
             loss_D_B = (loss_D_B_real + loss_D_B_fake) * 0.5
             total_loss_D_B += loss_D_B.item()
+
+            if (torch.is_grad_enabled()):
+                loss_D_B.backward()
+                self.optimizer_D_B.step()
     
         avg_loss_G = total_loss_G / len(dataloader)
         avg_loss_D_A = total_loss_D_A / len(dataloader)
         avg_loss_D_B = total_loss_D_B / len(dataloader)
-        
-        print(f'Epoch {epoch + 1}: Validation loss: generator = {avg_loss_G}; discriminator A = {avg_loss_D_A}; discriminator B = {avg_loss_D_B}')
     
         return avg_loss_G, avg_loss_D_A, avg_loss_D_B
 
     def load_checkpoint(self, filename):
-        filename = os.path.join(self.output_dir, filename)
+        dir = os.path.join(self.output_dir, 'checkpoints')
+        filename = os.path.join(dir, filename)
         
         checkpoint = torch.load(filename)
         
@@ -270,7 +258,10 @@ class Trainer:
         self.cur_epoch = checkpoint['cur_epoch']
     
     def save_checkpoint(self, filename):
-        filename = os.path.join(self.output_dir, filename)
+        dir = os.path.join(self.output_dir, 'checkpoints')
+        os.makedirs(dir, exist_ok=True)
+
+        filename = os.path.join(dir, filename)
         
         torch.save({
             'generator_A2B': self.generator_A2B.state_dict(),
@@ -289,14 +280,32 @@ class Trainer:
             'cur_epoch': self.cur_epoch
         }, filename)
 
-    def plot_loss(self, filename, caption, train_losses, val_losses):
-        filename = os.path.join(self.output_dir, filename)
+    def save_image(self, filename, origin, result):
+        dir = os.path.join(self.output_dir, 'images')
+        os.makedirs(dir, exist_ok=True)
+
+        filename = os.path.join(dir, filename)
+
+        origin_image = F.to_pil_image(origin)
+        result_image = F.to_pil_image(result)
+
+        merged_image = Image.new('RGB', (origin_image.width * 2, origin_image.height))
+        merged_image.paste(origin_image, (0, 0))
+        merged_image.paste(result_image, (origin_image.width, 0))
+
+        merged_image.save(filename)
+
+    def save_plot(self, filename, caption, metric_name, train_values, val_values):
+        dir = os.path.join(self.output_dir, 'plots')
+        os.makedirs(dir, exist_ok=True)
+
+        filename = os.path.join(dir, filename)
 
         plt.clf()
-        plt.plot(train_losses, label='Train Loss')
-        plt.plot(val_losses, label='Val Loss')
+        plt.plot(train_values, label='Training')
+        plt.plot(val_values, label='Validation')
         plt.xlabel('Epoch')
-        plt.ylabel('Loss')
+        plt.ylabel(metric_name)
         plt.title(caption)
         plt.legend()
         plt.savefig(filename)
