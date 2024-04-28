@@ -120,19 +120,19 @@ class Trainer:
                 self.optimizer_G.zero_grad()
     
             # identity loss
-            
+            print(real_A.size())
             identity_A = self.generator_B2A(real_A)
             loss_identity_A = self.criterion_identity(identity_A, real_A) * 5.0
 
             if (save_images):
-                for i in range(batch_size):
+                for i in range(min(batch_size, len(real_A))):
                     self.save_image(filename=f'identity_A_{cur_batch*batch_size+i}.png', origin=real_A[i], result=identity_A[i])
             
             identity_B = self.generator_A2B(real_B)
             loss_identity_B = self.criterion_identity(identity_B, real_B) * 5.0
 
             if (save_images):
-                for i in range(batch_size):
+                for i in range(min(batch_size, len(real_B))):
                     self.save_image(filename=f'identity_B_{cur_batch*batch_size+i}.png', origin=real_B[i], result=identity_B[i])
     
             # GAN loss
@@ -142,7 +142,7 @@ class Trainer:
             loss_GAN_B2A = self.criterion_GAN(pred_fake, target_real)
 
             if (save_images):
-                for i in range(batch_size):
+                for i in range(min(batch_size, len(real_B))):
                     self.save_image(filename=f'fake_A_{cur_batch*batch_size+i}.png', origin=real_B[i], result=fake_A[i])
     
             fake_B = self.generator_A2B(real_A)
@@ -150,7 +150,7 @@ class Trainer:
             loss_GAN_A2B = self.criterion_GAN(pred_fake, target_real)
 
             if (save_images):
-                for i in range(batch_size):
+                for i in range(min(batch_size, len(real_A))):
                     self.save_image(filename=f'fake_B_{cur_batch*batch_size+i}.png', origin=real_A[i], result=fake_B[i])
     
             # cycle loss
@@ -159,14 +159,14 @@ class Trainer:
             loss_cycle_B2A = self.criterion_cycle(recovered_A, real_A) * 10.0
 
             if (save_images):
-                for i in range(batch_size):
+                for i in range(min(batch_size, len(fake_B))):
                     self.save_image(filename=f'recovered_A_{cur_batch*batch_size+i}.png', origin=fake_B[i], result=recovered_A[i])
     
             recovered_B = self.generator_A2B(fake_A)
             loss_cycle_A2B = self.criterion_cycle(recovered_B, real_B) * 10.0
 
             if (save_images):
-                for i in range(batch_size):
+                for i in range(min(batch_size, len(fake_A))):
                     self.save_image(filename=f'recovered_B_{cur_batch*batch_size+i}.png', origin=fake_A[i], result=recovered_B[i])
 
             # total loss
