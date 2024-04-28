@@ -120,7 +120,6 @@ class Trainer:
                 self.optimizer_G.zero_grad()
     
             # identity loss
-            print(real_A.size())
             identity_A = self.generator_B2A(real_A)
             loss_identity_A = self.criterion_identity(identity_A, real_A) * 5.0
 

@@ -64,11 +64,7 @@ class DecoderBlock(nn.Module):
 
     def forward(self, x, skip):
         x = self.up(x)
-
-        if x.shape[2:] != skip.shape[2:]:
-            skip = F.interpolate(skip, size=x.shape[2:], mode='nearest')
-
-        x = torch.cat([x, skip], dim=1)
+        x = torch.cat([x, skip], axis=1)
         x = self.conv(x)
 
         return x
@@ -226,12 +222,25 @@ class UVCGANGenerator(nn.Module):
         
         # transformer
         
-        self.transformer = VisionTransformer(in_channels=in_features)
+        dimension = int(64 / (2 ** n_downsampling))
+        self.transformer = PixelwiseViT(
+            features=in_features,
+            n_heads=4,
+            n_blocks=4,
+            ffn_features=in_features*4,
+            embed_features=in_features,
+            activ='gelu',
+            norm=None,
+            image_shape=(in_features, dimension, dimension),
+            rezero=True
+        )
+        self.bottleneck = ConvBlock(in_features, out_features)
         
         # decoder
 
         decoder = []
 
+        in_features = out_features
         out_features = in_features//2
         
         for _ in range(n_downsampling):
@@ -248,7 +257,7 @@ class UVCGANGenerator(nn.Module):
 
         self.output = nn.Sequential(
             nn.ReflectionPad2d(3),
-            nn.Conv2d(ngf, out_channels, kernel_size=7, padding=0),
+            nn.Conv2d(ngf*2, out_channels, kernel_size=7, padding=0),
             nn.Tanh()
         )
 
@@ -261,6 +270,7 @@ class UVCGANGenerator(nn.Module):
             encoder_features.append(skip)
 
         x = self.transformer(x)
+        x = self.bottleneck(x)
 
         for i, module in enumerate(self.decoder):
             skip = encoder_features[-i-1]
@@ -338,7 +348,6 @@ class TransformerEncoder(nn.Module):
 
     def forward(self, x):
         y = x.permute((1, 0, 2))
-        print('y',y.shape)
         y = self.encoder(y)
         result = y.permute((1, 0, 2))
         return result
@@ -374,8 +383,6 @@ class ViTInput(nn.Module):
     def forward(self, x):
         embed = self.embed(self.y_const, self.x_const)
         embed = embed.expand((x.shape[0], *embed.shape[1:]))
-        print(f"Shape of embed: {embed.shape}")
-        print(f"Shape of x: {x.shape}")
         result = torch.cat([embed, x], dim=2)
         return self.output(result)
 
@@ -391,7 +398,6 @@ class PixelwiseViT(nn.Module):
     def forward(self, x):
         itokens = x.view(*x.shape[:2], -1)
         itokens = itokens.permute((0, 2, 1))
-        print('itokens shape',itokens.shape)
         y = self.trans_input(itokens)
         y = self.encoder(y)
         otokens = self.trans_output(y)
@@ -431,13 +437,10 @@ class UNet(nn.Module):
             image_shape=(384, 4, 4),
             rezero=True  # please replace '_' with the appropriate sizes
         )
-        
-        # Channel Matching Convolution
-        self.channel_matching_conv = nn.Conv2d(576, 384, 1)  # Add this line in your model's constructor
 
         # Decoder
         self.upconv1 = nn.ConvTranspose2d(384, 192, kernel_size=2, stride=2)
-        self.d11 = nn.Conv2d(576, 192, kernel_size=3, padding=1)
+        self.d11 = nn.Conv2d(384, 192, kernel_size=3, padding=1)
         self.d12 = nn.Conv2d(192, 192, kernel_size=3, padding=1)
 
         self.upconv2 = nn.ConvTranspose2d(192, 96, kernel_size=2, stride=2)
