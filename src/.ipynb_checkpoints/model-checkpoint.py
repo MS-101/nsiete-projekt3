@@ -272,7 +272,6 @@ class UVCGANGenerator(nn.Module):
 
 
 
-
 class PositionWiseFFN(nn.Module):
     def __init__(self, features, ffn_features, activ='gelu'):
         super().__init__()
@@ -287,26 +286,46 @@ class PositionWiseFFN(nn.Module):
 
 
 class TransformerBlock(nn.Module):
-    def __init__(self, features, ffn_features, n_heads, norm='layer', activ='gelu', rezero=True):
-        super().__init__()
-        self.norm1 = nn.LayerNorm((features,)) if norm == 'layer' else nn.BatchNorm2d(features)
+
+    def __init__(
+        self, features, ffn_features, n_heads, activ = 'gelu', norm = None,
+        rezero = True, **kwargs
+    ):
+        super().__init__(**kwargs)
+
+        self.norm1 = nn.LayerNorm((features,))
         self.atten = nn.MultiheadAttention(features, n_heads)
-        self.norm2 = nn.LayerNorm((features,)) if norm == 'layer' else nn.BatchNorm2d(features)
-        self.ffn = PositionWiseFFN(features, ffn_features, activ)
+
+        self.norm2 = nn.LayerNorm((features,))
+        self.ffn   = PositionWiseFFN(features, ffn_features, activ)
+
         self.rezero = rezero
+
         if rezero:
-            self.re_alpha = nn.Parameter(torch.zeros((1)))
+            self.re_alpha = nn.Parameter(torch.zeros((1, )))
         else:
             self.re_alpha = 1
 
     def forward(self, x):
+        # x: (L, N, features)
+
+        # Step 1: Multi-Head Self Attention
         y1 = self.norm1(x)
         y1, _atten_weights = self.atten(y1, y1, y1)
-        y = x + self.re_alpha * y1
+
+        y  = x + self.re_alpha * y1
+
+        # Step 2: PositionWise Feed Forward Network
         y2 = self.norm2(y)
         y2 = self.ffn(y2)
-        y = y + self.re_alpha * y2
+
+        y  = y + self.re_alpha * y2
+
         return y
+
+    def extra_repr(self):
+        return 're_alpha = %e' % (self.re_alpha, )
+
 
 
 class TransformerEncoder(nn.Module):
@@ -319,6 +338,7 @@ class TransformerEncoder(nn.Module):
 
     def forward(self, x):
         y = x.permute((1, 0, 2))
+        print('y',y.shape)
         y = self.encoder(y)
         result = y.permute((1, 0, 2))
         return result
@@ -371,7 +391,7 @@ class PixelwiseViT(nn.Module):
     def forward(self, x):
         itokens = x.view(*x.shape[:2], -1)
         itokens = itokens.permute((0, 2, 1))
-        print(itokens.shape)
+        print('itokens shape',itokens.shape)
         y = self.trans_input(itokens)
         y = self.encoder(y)
         otokens = self.trans_output(y)
@@ -408,13 +428,16 @@ class UNet(nn.Module):
             embed_features=384,
             activ='gelu',
             norm=None,
-            image_shape=(384, 16, 16),
+            image_shape=(384, 4, 4),
             rezero=True  # please replace '_' with the appropriate sizes
         )
+        
+        # Channel Matching Convolution
+        self.channel_matching_conv = nn.Conv2d(576, 384, 1)  # Add this line in your model's constructor
 
         # Decoder
         self.upconv1 = nn.ConvTranspose2d(384, 192, kernel_size=2, stride=2)
-        self.d11 = nn.Conv2d(384, 192, kernel_size=3, padding=1)
+        self.d11 = nn.Conv2d(576, 192, kernel_size=3, padding=1)
         self.d12 = nn.Conv2d(192, 192, kernel_size=3, padding=1)
 
         self.upconv2 = nn.ConvTranspose2d(192, 96, kernel_size=2, stride=2)
@@ -439,26 +462,41 @@ class UNet(nn.Module):
         x2 = self.pool2(F.relu(self.e22(F.relu(self.e21(x1)))))
         x3 = self.pool3(F.relu(self.e32(F.relu(self.e31(x2)))))
         x4 = self.pool4(F.relu(self.e42(F.relu(self.e41(x3)))))
-
+        print("x4",x4.size())
         # PixelwiseViT
         x5 = self.pixelwise_vit(x4)
+        print("x5", x5.size())
 
         # Decoder
-        x = F.relu(self.d12(F.relu(self.d11(
-            torch.cat([self.upconv1(x5), F.interpolate(x4, scale_factor=2)], 1)
-        ))))
-        x = F.relu(self.d22(F.relu(self.d21(
-            torch.cat([self.upconv2(x), F.interpolate(x3, scale_factor=2)], 1)
-        ))))
-        x = F.relu(self.d32(F.relu(self.d31(
-            torch.cat([self.upconv3(x), F.interpolate(x2, scale_factor=2)], 1)
-        ))))
-        x = F.relu(self.d42(F.relu(self.d41(
-            torch.cat([self.upconv4(x), F.interpolate(x1, scale_factor=2)], 1)
-        ))))
-
+        x = torch.cat([self.upconv1(x5), F.interpolate(x4, scale_factor=2)], 1)
+        print("Post first concat, pre d11/d12: ", x.shape)
+        x = F.relu(self.d11(x))
+        x = F.relu(self.d12(x))
+        print("Post d11/d12: ", x.shape)
+        
+        x = torch.cat([self.upconv2(x), F.interpolate(x3, scale_factor=2)], 1)
+        print("Post second concat, pre d21/d22: ", x.shape)
+        x = F.relu(self.d21(x))
+        x = F.relu(self.d22(x))
+        print("Post d21/d22: ", x.shape)
+        
+        x = torch.cat([self.upconv3(x), F.interpolate(x2, scale_factor=2)], 1)
+        print("Post third concat, pre d31/d32: ", x.shape)
+        x = F.relu(self.d31(x))
+        x = F.relu(self.d32(x))
+        print("Post d31/d32: ", x.shape)
+        
+        x = torch.cat([self.upconv4(x), F.interpolate(x1, scale_factor=2)], 1)
+        print("Post fourth concat, pre d41/d42: ", x.shape)
+        x = F.relu(self.d41(x))
+        x = F.relu(self.d42(x))
+        print("Post d41/d42: ", x.shape)
+        
         # Output layer
-        return self.outconv(x)
+        x = self.outconv(x)
+        print("Final output: ", x.shape)
+        
+        return x
 
 
 
