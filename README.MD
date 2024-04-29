@@ -320,30 +320,30 @@ Skript:
 	    print()
 
 	    generator_A2B = UVCGANGenerator(3, 3)
-    	generator_B2A = UVCGANGenerator(3, 3)
-    	discriminator_A = Discriminator(3)
-    	discriminator_B = Discriminator(3)
-
-    	base_lr = 0.001
-    
-    	config = {
-        	'datamodule': DataModule(),
-	        'generator_A2B': generator_A2B,
-        	'generator_B2A': generator_B2A,
-        	'discriminator_A': discriminator_A,
-        	'discriminator_B': discriminator_B,
-        	'criterion_GAN': nn.MSELoss(),
-        	'criterion_cycle': nn.L1Loss(),
-        	'criterion_identity': nn.L1Loss(),
-        	'optimizer_G': optim.Adam(itertools.chain(generator_A2B.parameters(), generator_B2A.parameters()), lr=base_lr),
-        	'optimizer_D_A': optim.Adam(discriminator_A.parameters(), lr=4*base_lr),
-        	'optimizer_D_B': optim.Adam(discriminator_B.parameters(), lr=4*base_lr),
-        	'max_epoch': 20,
-        	'output_dir': '../output/uvcgan'
-    	}
-    
-    	trainer = Trainer(config)
-    	trainer.fit()
+	    generator_B2A = UVCGANGenerator(3, 3)
+	    discriminator_A = Discriminator(3)
+	    discriminator_B = Discriminator(3)
+	
+	    base_lr = 0.001
+	
+	    config = {
+		'datamodule': DataModule(),
+		'generator_A2B': generator_A2B,
+		'generator_B2A': generator_B2A,
+		'discriminator_A': discriminator_A,
+		'discriminator_B': discriminator_B,
+		'criterion_GAN': nn.MSELoss(),
+		'criterion_cycle': nn.L1Loss(),
+		'criterion_identity': nn.L1Loss(),
+		'optimizer_G': optim.Adam(itertools.chain(generator_A2B.parameters(), generator_B2A.parameters()), lr=base_lr),
+		'optimizer_D_A': optim.Adam(discriminator_A.parameters(), lr=4*base_lr),
+		'optimizer_D_B': optim.Adam(discriminator_B.parameters(), lr=4*base_lr),
+		'max_epoch': 20,
+		'output_dir': '../output/uvcgan'
+	    }
+	
+	    trainer = Trainer(config)
+	    trainer.fit()
 
 Grafy:
 
