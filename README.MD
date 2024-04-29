@@ -39,7 +39,7 @@ Vstupný obrázok najskôr upravíme tak, aby obsahoval ngf kanálov. Obrázok z
 
 	class CycleGANGenerator(nn.Module):
 	    def __init__(self, in_channels, out_channels, ngf=64, n_downsampling=2, n_layers=6):
-	        super().__init__()
+		super().__init__()
 	
 	        # input
 	        
@@ -121,25 +121,25 @@ Architektúra je veľmi podobná vyššie opísanej CycleGAN architektúre. Sú 
 
 	class UVCGANGenerator(nn.Module):
     	    def __init__(self, in_channels, out_channels, ngf=64, n_downsampling=2, n_layers=6):
-    	        super().__init__()
+    		super().__init__()
 
-                # input
+        	# input
 
-                self.input = nn.Sequential(
+        	self.input = nn.Sequential(
             	    nn.ReflectionPad2d(3),
 	            nn.Conv2d(in_channels, ngf, kernel_size=7, padding=0),
             	    nn.InstanceNorm2d(ngf),
             	    nn.ReLU(inplace=True)
-                )
+        	)
 
-                # encoder
+        	# encoder
 
-                encoder = []
+        	encoder = []
         
-	        in_features = ngf
-	        out_features = ngf * 2
+		in_features = ngf
+		out_features = ngf * 2
 	        
-                for _ in range(n_downsampling):
+        	for _ in range(n_downsampling):
             	    encoder += [
             	        EncoderBlock(in_features, out_features)
             	    ]
@@ -147,12 +147,12 @@ Architektúra je veľmi podobná vyššie opísanej CycleGAN architektúre. Sú 
             	    in_features = out_features
 	            out_features = in_features*2
 
-    	        self.encoder = nn.Sequential(*encoder)
+    		self.encoder = nn.Sequential(*encoder)
         
-    	        # transformer
+    		# transformer
         
-    	        dimension = int(64 / (2 ** n_downsampling))
-    	        self.transformer = PixelwiseViT(
+    		dimension = int(64 / (2 ** n_downsampling))
+    		self.transformer = PixelwiseViT(
             	    features=in_features,
             	    n_heads=4,
             	    n_blocks=4,
@@ -162,29 +162,29 @@ Architektúra je veľmi podobná vyššie opísanej CycleGAN architektúre. Sú 
             	    norm=None,
             	    image_shape=(in_features, dimension, dimension),
             	    rezero=True
-                )
-                self.bottleneck = ConvBlock(in_features, out_features)
+        	)
+        	self.bottleneck = ConvBlock(in_features, out_features)
         
-                # decoder
+        	# decoder
 
-                decoder = []
+        	decoder = []
 
-                in_features = out_features
-                out_features = in_features//2
+        	in_features = out_features
+        	out_features = in_features//2
         
-                for _ in range(n_downsampling):
+        	for _ in range(n_downsampling):
                     decoder += [
             	        DecoderBlock(in_features, out_features)
                     ]
             
-                in_features = out_features
-                out_features = in_features//2
+        	    in_features = out_features
+                    out_features = in_features//2
 
-                self.decoder = nn.Sequential(*decoder)
+        	self.decoder = nn.Sequential(*decoder)
 
-                # output
+        	# output
 
-                self.output = nn.Sequential(
+        	self.output = nn.Sequential(
             	    nn.ReflectionPad2d(3),
 	            nn.Conv2d(ngf*2, out_channels, kernel_size=7, padding=0),
     	            nn.Tanh()
